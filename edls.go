@@ -2,6 +2,9 @@ package main
 
 import "time"
 
+//constante para validar el SO
+const Windows = "windows"
+
 //file type
 const (
 	fileRegular int = iota
