@@ -7,24 +7,28 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/exp/constraints"
 )
 
 func main() {
 	//pquete para linea de comandos
 	flagPattern := flag.String("p", "", "filter by pattern")
-	//flagAll := flag.Bool("a", false, "all file includin hide files")
+	flagAll := flag.Bool("a", false, "all file including hide files")
 	flaNumberRecords := flag.Int("n", 0, "number of records")
 
 	//bandera por tiempo
-	//hasOrderByTime := flag.Bool("t", false, "sort by time, oldset first")
+	hasOrderByTime := flag.Bool("t", false, "sort by time, oldset first")
 
 	//bandera tamano
-	//hasOrderBySize := flag.Bool("s", false, "sort buy file size, smallset first")
+	hasOrderBySize := flag.Bool("s", false, "sort buy file size, smallset first")
 
-	//Bandera organizador
-	//hasOrderReverse := flag.Bool("r", false, "reverse order while sorting")
+	//Bandera organizador en reversa
+	hasOrderReverse := flag.Bool("r", false, "reverse order while sorting")
+
 	//esto siempre se debe hacer para mape
 	flag.Parse()
 	path := flag.Arg(0)
@@ -40,24 +44,47 @@ func main() {
 	fs := []file{}
 
 	for _, dir := range dirs {
-		f, err := getFile(dir, false)
-		if err != nil {
-			panic(err)
-		}
+		isHidden := isHidden(dir.Name(), path)
 
-		//aqui validamos si es necesario hacer macth, con la expression regular se aplica que sea insetive
-		isMatched, err := regexp.MatchString("(?i)"+*flagPattern, f.name)
-		if err != nil {
-			panic(err)
-		}
-
-		//si es false no llena el slice
-		if !isMatched {
+		if isHidden && !*flagAll {
 			continue
+		}
+
+		f, err := getFile(dir, isHidden)
+		if err != nil {
+			panic(err)
+		}
+
+		//aqui validamos si el flag tiene valor o no
+		if *flagPattern != "" {
+			//aqui validamos si es necesario hacer macth, con la expression regular se aplica que sea insetive
+			isMatched, err := regexp.MatchString("(?i)"+*flagPattern, f.name)
+			if err != nil {
+				panic(err)
+			}
+
+			//si es false no llena el slice
+			if !isMatched {
+				continue
+			}
 		}
 		fs = append(fs, f)
 	}
 
+	//aqui validaremos si no nos entrega ningun flag de ordenamiento
+	if !*hasOrderBySize || !*hasOrderByTime {
+		orderByName(fs, *hasOrderReverse)
+	}
+
+	//valida si no le envia la validacion por tamaño
+	if *hasOrderBySize && !*hasOrderByTime {
+		orderBySize(fs, *hasOrderReverse)
+	}
+
+	//validamos orden por tiempo
+	if *hasOrderByTime {
+		orderByTime(fs, *hasOrderReverse)
+	}
 	//esto para validar la cantidad de registro que se necesita mostrar
 	if *flaNumberRecords == 0 || *flaNumberRecords > len(fs) {
 		*flaNumberRecords = len(fs)
@@ -105,6 +132,51 @@ func setFile(f *file) {
 
 }
 
+// funcion generica
+func mySort[T constraints.Ordered](i, j T, isReverse bool) bool {
+
+	if isReverse {
+		return i > j
+	}
+	return i < j
+}
+
+// funcion de ordenamiento por nombre
+func orderByName(files []file, isReverse bool) {
+
+	sort.SliceStable(files, func(i, j int) bool {
+
+		return mySort(
+			strings.ToLower(files[i].name),
+			strings.ToLower(files[j].name),
+			isReverse,
+		)
+
+	})
+}
+
+// funcion ordena por tamaño
+func orderBySize(files []file, isReverse bool) {
+	sort.SliceStable(files, func(i, j int) bool {
+		return mySort(
+			files[i].size,
+			files[j].size,
+			isReverse,
+		)
+	})
+}
+
+// function ordenamiento por tiempo
+func orderByTime(files []file, isReverse bool) {
+	sort.SliceStable(files, func(i, j int) bool {
+		return mySort(
+			files[i].modificationTime.Unix(),
+			files[j].modificationTime.Unix(),
+			isReverse,
+		)
+	})
+}
+
 // function para validar si es un archivo link
 func isLink(f file) bool {
 	return strings.HasPrefix(strings.ToUpper(f.mode), "L")
@@ -137,4 +209,9 @@ func printList(fs []file, nRecords int) {
 
 		fmt.Printf("%s %s %s %10d %s %s %s %s\n", file.mode, file.userName, file.groupName, file.size, file.modificationTime.Format(time.DateTime), style.icon, file.name, style.symbol)
 	}
+}
+
+// esta función es para validar los archivos ocultos
+func isHidden(fileName, basePath string) bool {
+	return strings.HasPrefix(fileName, ".")
 }
